@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>피아노 음표 연습 - 오른손</title>
+    <!-- VexFlow 라이브러리 (악보 렌더링) -->
+    <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.2/build/cjs/vexflow.js"></script>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --success-color: #2ecc71;
+            --error-color: #e74c3c;
+            --bg-color: #f5f7fa;
+        }
+
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+            background-color: var(--bg-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+
+        #app-container {
+            max-width: 800px;
+            width: 100%;
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            position: relative;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        h1 { margin: 0; font-size: 1.5rem; color: #333; }
+
+        .stats-top {
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+
+        /* 악보 영역 */
+        #score-container {
+            width: 100%;
+            height: 200px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #fff;
+            border: 1px solid #eee;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        /* 피드백 영역 */
+        #feedback-area {
+            text-align: center;
+            height: 80px;
+            margin-bottom: 20px;
+        }
+
+        .combo-counter {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--primary-color);
+            transition: transform 0.2s;
+        }
+
+        .note-name {
+            font-size: 1.2rem;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        /* 건반 영역 */
+        #keyboard {
+            display: flex;
+            justify-content: center;
+            position: relative;
+            height: 200px;
+            padding-bottom: 20px;
+        }
+
+        .key {
+            width: 50px;
+            height: 180px;
+            border: 1px solid #ccc;
+            background: white;
+            border-radius: 0 0 5px 5px;
+            margin: 0 2px;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            align-items: center;
+            padding-bottom: 15px;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.1s, transform 0.1s;
+            position: relative;
+            z-index: 1;
+        }
+
+        .key.black {
+            width: 34px;
+            height: 110px;
+            background: #333;
+            color: white;
+            margin-left: -17px;
+            margin-right: -17px;
+            z-index: 2;
+        }
+
+        .key-label {
+            font-size: 0.8rem;
+            font-weight: bold;
+            color: #888;
+        }
+
+        .key.black .key-label { color: #ccc; }
+
+        /* 상태 효과 */
+        .key.correct { background-color: var(--success-color) !important; color: white; transform: translateY(5px); }
+        .key.wrong { background-color: var(--error-color) !important; color: white; transform: translateY(5px); }
+        .pulse { transform: scale(1.2); }
+
+        /* 모달 */
+        #modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .modal {
+            background: white;
+            padding: 40px;
+            border-radius: 15px;
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+        }
+
+        button {
+            padding: 10px 25px;
+            font-size: 1rem;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        button:hover { opacity: 0.9; }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div id="app-container">
+    <header>
+        <h1>🎹 피아노 음표 연습</h1>
+        <div class="stats-top">진행: <span id="current-step">0</span> / 10</div>
+        <button id="start-btn">연습 시작</button>
+    </header>
+
+    <div id="score-container">
+        <div id="vexflow-output"></div>
+    </div>
+
+    <div id="feedback-area">
+        <div id="combo-display" class="combo-counter">0 COMBO</div>
+        <div id="note-display" class="note-name">준비되셨나요?</div>
+    </div>
+
+    <div id="keyboard">
+        <!-- 건반은 JS에서 생성됩니다 -->
+    </div>
+</div>
+
+<!-- 결과 모달 -->
+<div id="modal-overlay">
+    <div class="modal">
+        <h2>연습 종료!</h2>
+        <p id="final-stats">총 정답: 0 / 10<br>최고 콤보: 0</p>
+        <button id="restart-btn">다시 하기</button>
+    </div>
+</div>
+
+<script>
+    const { Renderer, Stave, StaveNote, Voice, Formatter } = Vex.Flow;
+
+    // 데이터 정의
+    const NOTES = [
+        { name: 'C4', key: 'a', freq: 261.63, label: '도' },
+        { name: 'D4', key: 's', freq: 293.66, label: '레' },
+        { name: 'E4', key: 'd', freq: 329.63, label: '미' },
+        { name: 'F4', key: 'f', freq: 349.23, label: '파' },
+        { name: 'G4', key: 'g', freq: 392.00, label: '솔' },
+        { name: 'A4', key: 'h', freq: 440.00, label: '라' },
+        { name: 'B4', key: 'j', freq: 493.88, label: '시' }
+    ];
+
+    // 상태 변수
+    let currentNote = null;
+    let sessionActive = false;
+    let step = 0;
+    let score = 0;
+    let combo = 0;
+    let maxCombo = 0;
+    let isWaiting = false;
+
+    // Audio Context 초기화
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // UI 요소
+    const keyboard = document.getElementById('keyboard');
+    const startBtn = document.getElementById('start-btn');
+    const restartBtn = document.getElementById('restart-btn');
+    const currentStepEl = document.getElementById('current-step');
+    const comboEl = document.getElementById('combo-display');
+    const noteEl = document.getElementById('note-display');
+    const modal = document.getElementById('modal-overlay');
+    const finalStatsEl = document.getElementById('final-stats');
+
+    // 건반 생성
+    function initKeyboard() {
+        keyboard.innerHTML = '';
+        NOTES.forEach(note => {
+            const keyDiv = document.createElement('div');
+            keyDiv.className = 'key';
+            keyDiv.dataset.note = note.name;
+            keyDiv.dataset.key = note.key;
+            keyDiv.innerHTML = `<span class="key-label">${note.label}<br>(${note.key.toUpperCase()})</span>`;
+            
+            // 클릭 이벤트 (마우스 지원)
+            keyDiv.addEventListener('mousedown', () => handleInput(note.key));
+            keyboard.appendChild(keyDiv);
+        });
+    }
+
+    // 소리 재생 (간단한 피아노 합성음)
+    function playNoteSound(freq) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+
+        gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.8);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.8);
+    }
+
+    // 악보 그리기
+    function drawNote(noteName) {
+        const div = document.getElementById('vexflow-output');
+        div.innerHTML = '';
+        
+        const renderer = new Renderer(div, Renderer.Backends.SVG);
+        renderer.resize(200, 150);
+        const context = renderer.getContext();
+
+        const stave = new Stave(10, 20, 180);
+        stave.addClef('treble').setContext(context).draw();
+
+        // VexFlow 형식으로 변환 (C4 -> c/4)
+        const vfNote = noteName.toLowerCase().replace(/(\d)/, '/$1');
+        const notes = [
+            new StaveNote({ keys: [vfNote], duration: 'q' })
+        ];
+
+        // 도(C4)의 경우 가온다줄 추가를 위해 자동 처리됨
+        Formatter.FormatAndDraw(context, stave, notes);
+    }
+
+    // 세션 시작
+    function startSession() {
+        sessionActive = true;
+        step = 0;
+        score = 0;
+        combo = 0;
+        maxCombo = 0;
+        isWaiting = false;
+        startBtn.classList.add('hidden');
+        modal.style.display = 'none';
+        updateUI();
+        nextQuestion();
+    }
+
+    // 다음 문제
+    function nextQuestion() {
+        if (step >= 10) {
+            endSession();
+            return;
+        }
+        isWaiting = false;
+        step++;
+        currentNote = NOTES[Math.floor(Math.random() * NOTES.length)];
+        
+        // UI 업데이트
+        currentStepEl.textContent = step;
+        noteEl.textContent = "?";
+        drawNote(currentNote.name);
+        
+        // 이전 하이라이트 제거
+        document.querySelectorAll('.key').forEach(k => k.classList.remove('correct', 'wrong'));
+    }
+
+    // 입력 처리
+    function handleInput(pressedKey) {
+        if (!sessionActive || isWaiting) return;
+
+        const noteData = NOTES.find(n => n.key === pressedKey.toLowerCase());
+        if (!noteData) return;
+
+        isWaiting = true;
+        playNoteSound(noteData.freq);
+
+        const targetKeyEl = document.querySelector(`.key[data-note="${currentNote.name}"]`);
+        const pressedKeyEl = document.querySelector(`.key[data-key="${pressedKey.toLowerCase()}"]`);
+
+        if (noteData.key === currentNote.key) {
+            // 정답
+            score++;
+            combo++;
+            if (combo > maxCombo) maxCombo = combo;
+            pressedKeyEl.classList.add('correct');
+            noteEl.textContent = `${currentNote.label} (정답!)`;
+            comboEl.classList.add('pulse');
+            setTimeout(() => comboEl.classList.remove('pulse'), 200);
+        } else {
+            // 오답
+            combo = 0;
+            pressedKeyEl.classList.add('wrong');
+            targetKeyEl.classList.add('correct'); // 정답 알려주기
+            noteEl.textContent = `틀렸어요! (정답: ${currentNote.label})`;
+        }
+
+        updateUI();
+
+        // 800ms 후 다음 문제
+        setTimeout(nextQuestion, 800);
+    }
+
+    function updateUI() {
+        comboEl.textContent = `${combo} COMBO`;
+    }
+
+    function endSession() {
+        sessionActive = false;
+        modal.style.display = 'flex';
+        finalStatsEl.innerHTML = `총 정답: ${score} / 10<br>최고 콤보: ${maxCombo}`;
+        startBtn.classList.remove('hidden');
+    }
+
+    // 키보드 이벤트 리스너
+    window.addEventListener('keydown', (e) => {
+        if (e.repeat) return;
+        handleInput(e.key);
+    });
+
+    startBtn.addEventListener('click', startSession);
+    restartBtn.addEventListener('click', startSession);
+
+    // 초기화
+    initKeyboard();
+    // 초기 화면에 빈 악보 표시
+    const renderer = new Renderer(document.getElementById('vexflow-output'), Renderer.Backends.SVG);
+    renderer.resize(200, 150);
+    new Stave(10, 20, 180).addClef('treble').setContext(renderer.getContext()).draw();
+
+</script>
+
+</body>
+</html>
